@@ -18,9 +18,10 @@ local_packages: $(VENV_PYTHON) ## Install required packages
 	$(VENV_PYTHON) -m pip install --no-cache-dir --verbose -r requirements.txt
 	$(VENV_PYTHON) -m pip install --no-cache-dir --verbose -r requirements_torch.txt
 
+OPTS = --show True
 run: ## Run the script
-	$(VENV_PYTHON) run.py --image example.jpg --garage-area 370,550,2100,1400
-	$(VENV_PYTHON) run.py --image example.jpg --garage-area 370,550,2100,2000
+	$(VENV_PYTHON) run.py --image example.jpg --garage-area 370,550,2100,1400 $(OPTS)
+	$(VENV_PYTHON) run.py --image example.jpg --garage-area 370,550,2100,2000 $(OPTS)
 
 
 # poetry: $(VENV_PYTHON)  ## Install packages in local venv using poetry

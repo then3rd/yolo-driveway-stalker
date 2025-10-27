@@ -2,7 +2,9 @@
 
 import argparse
 import logging
+from datetime import datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import coloredlogs
 import cv2
@@ -84,29 +86,37 @@ def parse_area(area_str):
     return [int(x) for x in area_str.split(",")]
 
 
-def is_in_area(box, area, *, check_all_points=True):
-    """Check if a bounding box is in a defined area."""
+def is_in_area(points, area, *, check_all_points=True):
+    """Check if a polygon or bounding box is in a defined area."""
     if area is None:
         return False
 
-    # Extract box coordinates
-    x1, y1, x2, y2 = box
+    box = 4
+    # Check if input is a polygon (array of points) or a bounding box
+    if isinstance(points, list) and len(points) == box:
+        # It's a bounding box [x1, y1, x2, y2]
+        x1, y1, x2, y2 = points
 
-    if check_all_points:
-        # Check if all four corners of the box are in the area
-        top_left = area[0] <= x1 <= area[2] and area[1] <= y1 <= area[3]
-        top_right = area[0] <= x2 <= area[2] and area[1] <= y1 <= area[3]
-        bottom_left = area[0] <= x1 <= area[2] and area[1] <= y2 <= area[3]
-        bottom_right = area[0] <= x2 <= area[2] and area[1] <= y2 <= area[3]
+        if check_all_points:
+            # Check if all four corners of the box are in the area
+            top_left = area[0] <= x1 <= area[2] and area[1] <= y1 <= area[3]
+            top_right = area[0] <= x2 <= area[2] and area[1] <= y1 <= area[3]
+            bottom_left = area[0] <= x1 <= area[2] and area[1] <= y2 <= area[3]
+            bottom_right = area[0] <= x2 <= area[2] and area[1] <= y2 <= area[3]
+            return top_left and top_right and bottom_left and bottom_right
+        # Calculate center point of the box
+        box_center_x = (x1 + x2) / 2
+        box_center_y = (y1 + y2) / 2
 
-        return top_left and top_right and bottom_left and bottom_right
-
-    # Calculate center point of the box
-    box_center_x = (x1 + x2) / 2
-    box_center_y = (y1 + y2) / 2
-
-    # Check if center is in area
-    return area[0] <= box_center_x <= area[2] and area[1] <= box_center_y <= area[3]
+        # Check if center is in area
+        return area[0] <= box_center_x <= area[2] and area[1] <= box_center_y <= area[3]
+    # It's a polygon (array of points)
+    # Check if all points are inside the area
+    for point in points:
+        x, y = point
+        if not (area[0] <= x <= area[2] and area[1] <= y <= area[3]):
+            return False
+    return True
 
 
 def process_image(image_path: Path, model, garage_area, conf=0.4):
@@ -122,13 +132,16 @@ def process_image(image_path: Path, model, garage_area, conf=0.4):
     # Create a copy of the image to draw on
     output_image = image.copy()
 
-    # Draw garage and driveway areas
+    # Add current timestamp
+    add_timestamp_to_image(output_image)
+
+    # Draw garage area
     if garage_area:
         cv2.rectangle(
             output_image,
             (garage_area[0], garage_area[1]),
             (garage_area[2], garage_area[3]),
-            (0, 255, 0),
+            GREEN,
             3,
         )
         cv2.putText(
@@ -141,70 +154,73 @@ def process_image(image_path: Path, model, garage_area, conf=0.4):
             3,
         )
 
-    # if driveway_area:
-    #     cv2.rectangle(
-    #         output_image,
-    #         (driveway_area[0], driveway_area[1]),
-    #         (driveway_area[2], driveway_area[3]),
-    #         BLUE,
-    #         3,
-    #     )
-    #     cv2.putText(
-    #         output_image,
-    #         "Driveway",
-    #         (driveway_area[0], driveway_area[1] - 10),
-    #         cv2.FONT_HERSHEY_SIMPLEX,
-    #         1,
-    #         BLUE,
-    #         3,
-    #     )
-
     # Track counts
     garage_count = 0
     driveway_count = 0
-    # other_count = 0
 
-    # Process each car detection
+    # Process each detection result
     for r in results:
-        # logger.info(results.masks)
         boxes = r.boxes
-        for box in boxes:
+
+        masks = r.masks
+
+        if masks is None:
+            logger.warning("No segmentation masks found in results. Using bounding boxes only.")
+            continue
+
+        # Process each detection
+        for i, box in enumerate(boxes):
             # Check if the detection is a car (class 2 in COCO)
             cls = int(box.cls.item())
             if cls == CAR:
-                # Get bounding box coordinates
+                # Get bounding box coordinates (for label placement)
                 x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                 conf_score = box.conf.item()
 
-                # Determine location
-                in_garage = is_in_area([x1, y1, x2, y2], garage_area)
-                # in_driveway = is_in_area([x1, y1, x2, y2], driveway_area)
+                # Get the corresponding mask polygon points
+                try:
+                    mask_points = masks.xy[i]
 
-                # Set color and label based on location
-                if in_garage:
-                    color = GREEN
-                    label = "Car (Garage)"
-                    garage_count += 1
-                else:
-                    color = RED
-                    label = "Car (Driveway)"
-                    driveway_count += 1
-                # if in_driveway:
-                #     color = BLUE
-                #     label = "Car (Other)"
-                #     other_count += 1
+                    # Convert mask points to integer for drawing
+                    mask_points_int = mask_points.astype(int)
 
-                # Draw bounding box and label
-                cv2.rectangle(output_image, (x1, y1), (x2, y2), color, 3)
-                cv2.putText(
-                    output_image,
-                    f"{label} {conf_score:.2f}",
-                    (x1, y1 - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1,
-                    color,
-                    2,
-                )
+                    # Determine location based on mask points
+                    in_garage = is_in_area(mask_points, garage_area)
+
+                    # Set color and label based on location
+                    if in_garage:
+                        color = GREEN
+                        label = "Car (Garage)"
+                        garage_count += 1
+                    else:
+                        color = RED
+                        label = "Car (Driveway)"
+                        driveway_count += 1
+
+                    # Draw the polygon mask
+                    cv2.polylines(
+                        img=output_image,
+                        pts=[mask_points_int],
+                        isClosed=True,
+                        color=color,
+                        thickness=3,
+                    )
+                    # cv2.fillPoly(output_image, [mask_points_int], (*color, 50))
+
+                    # Draw bounding box and label
+                    cv2.rectangle(output_image, (x1, y1), (x2, y2), CYAN, 2)
+                    cv2.putText(
+                        output_image,
+                        f"{label} {conf_score:.2f}",
+                        (x1, y1 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        1,
+                        color,
+                        2,
+                    )
+                except (IndexError, AttributeError) as e:
+                    logger.warning(f"Error processing mask for detection {i}: {e}")
+                    continue
 
     # Display counts
     cv2.putText(
@@ -247,6 +263,31 @@ def resize_maintain_aspect_ratio(image, width=None, height=None):
         dim = (int(w * r), height)
 
     return cv2.resize(image, dim, interpolation=cv2.INTER_AREA)
+
+
+def add_timestamp_to_image(image):
+    """Add the current ISO timestamp to an image"""
+    # Load the image
+
+    # Get current timestamp in ISO format
+    timestamp = datetime.now(ZoneInfo("America/Denver")).strftime("%b %d, %Y - %I:%M:%S %p")
+
+    # Font settings
+    font = cv2.FONT_HERSHEY_SIMPLEX
+    font_scale = 2
+    color = (255, 255, 255)  # White color in BGR
+    thickness = 2
+
+    # Calculate position for top right with padding
+    text_size = cv2.getTextSize(timestamp, font, font_scale, thickness)[0]
+    padding = 10
+    x = image.shape[1] - text_size[0] - padding
+    y = text_size[1] + padding
+    position = (x, y)
+
+    # Draw text with a dark background for better visibility
+    cv2.putText(image, timestamp, position, font, font_scale, (0, 0, 0), thickness + 1)
+    cv2.putText(image, timestamp, position, font, font_scale, color, thickness)
 
 
 def main():
