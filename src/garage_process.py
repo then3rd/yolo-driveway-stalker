@@ -47,14 +47,11 @@ def load_model():
     model_url = "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n-seg.pt"
     model_path = Path.home() / ".cache" / "ultralytics" / "yolo11n-seg.pt"
     # model_path = Path.home() / ".cache" / "ultralytics" / "yolo11n.pt"
-
     # Download model if not present
     download_model(model_url, model_path)
-
     # Load model
     model = YOLO(str(model_path))
     model.to("cpu")  # Explicitly set device to CPU
-
     return model
 
 
@@ -71,7 +68,6 @@ def point_in_polygon(point, polygon):
     n = len(polygon)
     inside = False
     p1x, p1y = polygon[0]
-
     for i in range(1, n + 1):
         p2x, p2y = polygon[i % n]
         if y > min(p1y, p2y) and y <= max(p1y, p2y) and x <= max(p1x, p2x):
@@ -79,7 +75,6 @@ def point_in_polygon(point, polygon):
             if p1x == p2x or x <= xinters:
                 inside = not inside
         p1x, p1y = p2x, p2y
-
     return inside
 
 
@@ -106,7 +101,6 @@ def is_in_area(points, area, *, check_all_points=True):  # noqa: C901, PLR0911
                 [x1, y2],  # bottom left
                 [x2, y2],  # bottom right
             ]
-
             if check_all_points:
                 # Check if all corners are inside the polygon
                 return all(point_in_polygon(corner, area) for corner in corners)
@@ -120,7 +114,6 @@ def is_in_area(points, area, *, check_all_points=True):  # noqa: C901, PLR0911
             return all(point_in_polygon(point, area) for point in points)
         # Check if at least one point is inside
         return any(point_in_polygon(point, area) for point in points)
-
     # If area is a rectangle [x1, y1, x2, y2]
     if isinstance(area, list) and len(area) == 4 and all(isinstance(x, (int, float)) for x in area):
         box = 4
@@ -132,7 +125,6 @@ def is_in_area(points, area, *, check_all_points=True):  # noqa: C901, PLR0911
         ):
             # It's a bounding box [x1, y1, x2, y2]
             x1, y1, x2, y2 = points
-
             if check_all_points:
                 # Check if all four corners of the box are in the area
                 top_left = area[0] <= x1 <= area[2] and area[1] <= y1 <= area[3]
@@ -143,7 +135,6 @@ def is_in_area(points, area, *, check_all_points=True):  # noqa: C901, PLR0911
             # Calculate center point of the box
             box_center_x = (x1 + x2) / 2
             box_center_y = (y1 + y2) / 2
-
             # Check if center is in area
             return area[0] <= box_center_x <= area[2] and area[1] <= box_center_y <= area[3]
         # It's a polygon (array of points)
@@ -166,18 +157,13 @@ def process_image(image_path: Path, model, area, conf=0.4):
     image = cv2.imread(str(image_path))
     if image is None:
         raise ValueError(f"Could not read image: {image_path}")
-
     # Perform detection
     results = model(image, conf=conf)
-
     # Create a copy of the image to draw on
     output_image = image.copy()
-
     # Add current timestamp
     add_timestamp_to_image(output_image)
-
     # Draw garage area
-
     if area:
         if isinstance(area, list) and len(area) > 4 and all(isinstance(p, list) for p in area):
             # It's a polygon - draw it
@@ -220,13 +206,10 @@ def process_image(image_path: Path, model, area, conf=0.4):
     # Process each detection result
     for r in results:
         boxes = r.boxes
-
         masks = r.masks
-
         if masks is None:
             logger.warning("No segmentation masks found in results. Using bounding boxes only.")
             continue
-
         # Process each detection
         for i, box in enumerate(boxes):
             # Check if the detection is a car (class 2 in COCO)
@@ -235,17 +218,13 @@ def process_image(image_path: Path, model, area, conf=0.4):
                 # Get bounding box coordinates (for label placement)
                 x1, y1, _x2, _y2 = map(int, box.xyxy[0].tolist())
                 conf_score = box.conf.item()
-
                 # Get the corresponding mask polygon points
                 try:
                     mask_points = masks.xy[i]
-
                     # Convert mask points to integer for drawing
                     mask_points_int = mask_points.astype(int)
-
                     # Determine location based on mask points
                     in_garage = is_in_area(mask_points, area)
-
                     # Set color and label based on location
                     if in_garage:
                         color = GREEN
@@ -255,7 +234,6 @@ def process_image(image_path: Path, model, area, conf=0.4):
                         color = RED
                         label = "Car (Driveway)"
                         driveway_count += 1
-
                     # Draw the polygon mask
                     cv2.polylines(
                         img=output_image,
@@ -265,7 +243,6 @@ def process_image(image_path: Path, model, area, conf=0.4):
                         thickness=3,
                     )
                     # cv2.fillPoly(output_image, [mask_points_int], (*color, 50))
-
                     # Draw bounding box and label
                     # cv2.rectangle(output_image, (x1, y1), (_x2, _y2), CYAN, 2)
                     cv2.putText(
@@ -308,10 +285,8 @@ def resize_maintain_aspect_ratio(image, width=None, height=None):
     """Resize image based on width or height and selected interpolation method"""
     dim = None
     (h, w) = image.shape[:2]
-
     if width is None and height is None:
         return image
-
     if width is not None:
         r = width / float(w)
         dim = (width, int(h * r))
@@ -320,30 +295,24 @@ def resize_maintain_aspect_ratio(image, width=None, height=None):
             raise ValueError("Either width or height must be provided")
         r = height / float(h)
         dim = (int(w * r), height)
-
     return cv2.resize(image, dim, interpolation=cv2.INTER_AREA)
 
 
 def add_timestamp_to_image(image):
     """Add the current ISO timestamp to an image"""
-    # Load the image
-
     # Get current timestamp in ISO format
     timestamp = datetime.now(ZoneInfo("America/Denver")).strftime("%b %d, %Y - %I:%M:%S %p")
-
     # Font settings
     font = cv2.FONT_HERSHEY_SIMPLEX
     font_scale = 2
     color = (255, 255, 255)  # White color in BGR
     thickness = 2
-
     # Calculate position for top right with padding
     text_size = cv2.getTextSize(timestamp, font, font_scale, thickness)[0]
     padding = 10
     x = image.shape[1] - text_size[0] - padding
     y = text_size[1] + padding
     position = (x, y)
-
     # Draw text with a dark background for better visibility
     cv2.putText(image, timestamp, position, font, font_scale, (0, 0, 0), thickness + 1)
     cv2.putText(image, timestamp, position, font, font_scale, color, thickness)
@@ -353,7 +322,6 @@ def load_polygon_from_file(file_path: Path):
     """Load polygon points from a JSON file."""
     with Path.open(file_path) as f:
         data = json.load(f)
-
     if isinstance(data, list):
         logger.info(f"Loaded {len(data)} polygon points from {file_path}")
         return data
@@ -371,9 +339,6 @@ def parse_arguments():
     parser.add_argument(
         "--points", type=str, default=None, help="Path to JSON file containing polygon points"
     )
-    # parser.add_argument(
-    #     "--driveway-area", type=str, default=None, help="Driveway area coordinates as x1,y1,x2,y2"
-    # )
     parser.add_argument(
         "--confidence", type=float, default=0.4, help="Confidence threshold for detections"
     )
@@ -386,24 +351,19 @@ def main():
     """Primary routine"""
     # Parse command line arguments
     args = parse_arguments()
-
     setup_logger(log_level="DEBUG")
-
     # Load model
     logger.info("Loading model...")
     model = load_model()
-
     # Parse garage area - either from polygon file or from area coordinates
     area = None
     json_path = DEFAULT_POINTS_JSON
-
     if args.garage_area:
         area = parse_area(args.garage_area)
     else:
         if args.points:
             json_path = Path(args.points)
         area = load_polygon_from_file(json_path)
-
     # Process the image
     logger.info(f"Processing image: {args.image}")
     try:
@@ -413,17 +373,14 @@ def main():
             area,
             conf=args.confidence,
         )
-
         # Save the output image
         output_path = Path(args.output)
         cv2.imwrite(str(output_path), output_image)
         logger.info(f"Output saved to: {args.output}")
-
         # Display results
         logger.info(
             f"Cars detected: {garage_count} in garage, {driveway_count} in driveway"  # , {other_count} elsewhere"
         )
-
         if args.show:
             # Display the image
             cv2.imshow(
@@ -432,7 +389,6 @@ def main():
             logger.info("Press any key to exit")
             cv2.waitKey(0)
             cv2.destroyAllWindows()
-
     except Exception as e:  # noqa: BLE001
         logger.info(f"Error processing image: {e}")
 
