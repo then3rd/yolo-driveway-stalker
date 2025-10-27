@@ -1,3 +1,4 @@
+coloredlogs
 gitpython
 numpy
 opencv-python

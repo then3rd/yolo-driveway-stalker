@@ -4,6 +4,7 @@ import argparse
 import logging
 from pathlib import Path
 
+import coloredlogs
 import cv2
 import requests
 from ultralytics import YOLO  # pyright: ignore[reportPrivateImportUsage]
@@ -16,6 +17,13 @@ CYAN = (255, 255, 0)
 CAR = 2  # 2 is car class in COCO dataset
 
 logger = logging.getLogger(__name__)
+
+
+def setup_logger(log_level):
+    """Colored logger setup."""
+    logging.basicConfig(level=log_level)
+    coloredlogs.DEFAULT_LOG_FORMAT = "%(asctime)s %(name)s[%(process)d] %(levelname)s %(message)s"
+    coloredlogs.install(level=log_level, isatty=True)
 
 
 def download_model(model_url, model_path):
@@ -47,14 +55,17 @@ def parse_arguments():
         "--confidence", type=float, default=0.4, help="Confidence threshold for detections"
     )
     parser.add_argument("--output", type=str, default="output.jpg", help="path for output image")
+    parser.add_argument("--show", type=bool, help="Display output image")
     return parser.parse_args()
 
 
 def load_model():
     """Load  model."""
     # Define model path and URL
-    model_url = "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt"
-    model_path = Path.home() / ".cache" / "ultralytics" / "yolo11n.pt"
+    # model_url = "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt"
+    model_url = "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n-seg.pt"
+    model_path = Path.home() / ".cache" / "ultralytics" / "yolo11n-seg.pt"
+    # model_path = Path.home() / ".cache" / "ultralytics" / "yolo11n.pt"
 
     # Download model if not present
     download_model(model_url, model_path)
@@ -155,6 +166,7 @@ def process_image(image_path: Path, model, garage_area, conf=0.4):
 
     # Process each car detection
     for r in results:
+        # logger.info(results.masks)
         boxes = r.boxes
         for box in boxes:
             # Check if the detection is a car (class 2 in COCO)
@@ -242,6 +254,8 @@ def main():
     # Parse command line arguments
     args = parse_arguments()
 
+    setup_logger(log_level="DEBUG")
+
     # Load model
     logger.info("Loading model...")
     model = load_model()
@@ -270,11 +284,14 @@ def main():
             f"Cars detected: {garage_count} in garage, {driveway_count} in driveway"  # , {other_count} elsewhere"
         )
 
-        # Display the image
-        cv2.imshow("YOLO Car Detection", resize_maintain_aspect_ratio(output_image, height=1024))
-        logger.info("Press any key to exit")
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
+        if args.show:
+            # Display the image
+            cv2.imshow(
+                "YOLO Car Detection", resize_maintain_aspect_ratio(output_image, height=1024)
+            )
+            logger.info("Press any key to exit")
+            cv2.waitKey(0)
+            cv2.destroyAllWindows()
 
     except Exception as e:  # noqa: BLE001
         logger.info(f"Error processing image: {e}")
