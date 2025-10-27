@@ -1,0 +1,59 @@
+{
+    // https://stackoverflow.com/questions/50612169/pylint-not-recognizing-cv2-members
+    // "pylint.args": [
+    //     "--generated-members=(cv2.*)"
+    // ],
+    "[python]": {
+        "editor.codeActionsOnSave": {
+            "source.fixAll": "explicit",
+            "source.organizeImports": "explicit"
+        },
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.formatOnSave": true,
+        "editor.formatOnSaveMode": "file",
+        "editor.formatOnType": false
+    },
+    "cSpell.words": [
+        "Aruco",
+        "astype",
+        "calib",
+        "Charuco",
+        "coeffs",
+        "cropbox",
+        "cropboxes",
+        "debugpy",
+        "dtype",
+        "framegrab",
+        "frontlight",
+        "glarelight",
+        "imread",
+        "imshow",
+        "imwrite",
+        "keycap",
+        "keycaps",
+        "Makefiles",
+        "pydantic",
+        "SSIM",
+        "uids",
+        "Undistort",
+        "WLED",
+        "xyxy",
+    ],
+    "editor.codeActionsOnSave": {
+        "source.fixAll.eslint": "always"
+    },
+    "eslint.validate": [
+        "javascript",
+        "typescript"
+    ],
+    "eslint.workingDirectories": [
+        {
+            "changeProcessCWD": true,
+            "directory": "${workspaceFolder}/app/frontend"
+        }
+    ],
+    "python.analysis.diagnosticMode": "workspace",
+    "python.analysis.languageServerMode": "full",
+    "python.defaultInterpreterPath": "${workspaceFolder}/.venv",
+    "ruff.nativeServer": "on"
+}

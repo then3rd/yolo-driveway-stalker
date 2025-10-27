@@ -1,0 +1,7 @@
+gitpython
+numpy
+opencv-python
+pandas
+seaborn
+tqdm
+ultralytics

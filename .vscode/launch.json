@@ -1,0 +1,22 @@
+{
+    // https://code.visualstudio.com/docs/python/debugging
+    // Local Debugging
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "aruco.py",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/app/backend/src/aruco.py",
+            "cwd": "${workspaceFolder}/app/backend/",
+            // "args": [
+            //     "-l",
+            //     "DEBUG",
+            //     "-i",
+            //     "${workspaceFolder}/examples/MasterBright.jpg"
+            // ],
+            "console": "integratedTerminal",
+            "justMyCode": true
+        },
+    ]
+}

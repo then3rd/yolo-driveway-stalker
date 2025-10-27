@@ -1,0 +1,159 @@
+[tool.pyright]
+typeCheckingMode = "standard"
+extraPaths = ["./"]
+include = ["./"]
+# ignore = ["app/backend/test/"]
+
+# reportAttributeAccessIssue = "warning"
+# reportArgumentType = "warning"
+# reportCallIssue = "warning"
+# reportOptionalMemberAccess = "warning"
+# reportPossiblyUnboundVariable = "warning"
+reportUndefinedVariable = false # covered by Ruff F821
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+indent-width = 4
+extend-exclude = [".vscode", "__pycache__", "pyproject.toml"]
+
+[tool.ruff.format]
+indent-style = "space"
+line-ending = "lf"
+docstring-code-format = true
+docstring-code-line-length = 120
+
+[tool.ruff.lint.pycodestyle]
+max-doc-length = 120
+
+[tool.ruff.lint]
+select = [
+    "A",     # flake8-builtins
+    "ARG",   # flake8-unused-arguments
+    "ASYNC", # flake8-async
+    "B",     # flake8-bugbear
+    "BLE",   # flake8-blind-except
+    "C",     # Complexity
+    "C4",    # flake8-comprehensions
+    "C90",   # mccabe (complexity)
+    "D",     # pydocstyle
+    "DTZ",   # flake8-datetimez
+    "E",     # PyCodeStyle errors
+    "EXE",   # flake8-executable
+    "F",     # Pyflakes rules
+    "FA",    # flake8-future-annotations
+    "FBT",   # flake8-boolean-trap
+    "FLY",   # flynt (str.join calls replaceable with f-strings)
+    "FURB",  # refurb
+    "G",     # flake8-logging-format
+    "I",     # isort
+    "ICN",   # flake8-import-conventions
+    "INP",   # flake8-no-pep420 (require __init__.py)
+    "INT",   # flake8-gettext
+    "ISC",   # flake8-implicit-str-concat
+    "LOG",   # flake8-logging
+    "N",     # pep8-naming
+    "NPY",   # NumPy-specific rules
+    "PERF",  # Perflint
+    "PGH",   # pygrep-hooks
+    "PIE",   # flake8-pie
+    "PL",    # Pylint
+    "PTH",   # flake8-use-pathlib
+    "PYI",   # flake8-pyi
+    "Q",     # flake8-quotes
+    "RET",   # flake8-return
+    "RSE",   # flake8-raise
+    "RUF",   # Ruff-specific rules
+    "SIM",   # flake8-simplify
+    "SLF",   # flake8-self
+    "SLOT",  # flake8-slots
+    "T20",   # flake8-print
+    "TC",    # flake8-type-checking
+    "TD",    # flake8-todos
+    "TID",   # flake8-tidy-imports
+    "TRY",   # tryceratops
+    "UP",    # pyupgrade
+    "W",     # PyCodeStyle warnings
+    "YTT",   # flake8-2020
+]
+
+# TODO
+extend-select = [
+    # "FIX", # flake8-fixme
+    # "ANN", # flake8-annotations
+    # "COM", # flake8-commas
+    # "EM",  # flake8-errmsg
+    # "ERA", # eradicate
+    # "S",   # flake8-bandit (exec, assert)
+    # "T10", # flake8-debugger
+
+    ## Unused ##
+    # "CPY",  # flake8-copyright
+    # "PD",   # pandas-vet
+    # "PT",   # flake8-pytest-style
+]
+
+ignore = [
+    "D203",
+    "D211",    # warning: `incorrect-blank-line-before-class` (D203) and `no-blank-line-before-class` (D211) are incompatible.
+    "D213",    # warning: `multi-line-summary-first-line` (D212) and `multi-line-summary-second-line` (D213) are incompatible.
+    "D107",    # Missing docstring in `__init__`
+    "D400",    # First line should end with a period (prefer D415)
+    "G004",    # logging statement uses f-string
+    "N813",    # Camelcase `DBTerm` imported as lowercase `dbt`
+    "PLC0415", # `import` should be at the top-level of a file
+    "TD002",   # Missing author in TODO; try: `# TODO(<author_name>): ...` or `# TODO @<author_name>: ...`
+    "TD003",   # Missing issue link for this TODO
+    "TRY003",  # Avoid specifying long messages outside the exception class (Too strict imo)
+
+    # TODO: fix issues below
+    "D415", # First line should end with a period, question mark, or exclamation point
+    "E501", # Line too long
+]
+
+[tool.ruff.lint.per-file-ignores]
+# "vulture_whitelist.py" = ["F821", "B018"]
+# "config.py" = ["ALL"]
+# # https://github.com/astral-sh/ruff/issues/5243
+# "**/models/coordinates.py" = ["RUF012"]
+# "**/models/scoring.py" = ["RUF012"]
+# "**/models/settings_model.py" = ["RUF012"]
+
+# [tool.ruff.lint.pydocstyle]
+# convention = "google"
+
+# [tool.pylint.'MAIN']
+# extension-pkg-whitelist=cv2
+
+[tool.pylint.'MESSAGES CONTROL']
+disable = [
+    "logging-fstring-interpolation",
+    "broad-exception-caught",
+    "missing-class-docstring",       # handled by Ruff D101
+    "missing-function-docstring",    # handled by Ruff D103
+    "no-else-return",                # See TRY300
+]
+
+[tool.pylint.format]
+# Max line length
+max-line-length = 120
+# Maximum number of arguments for function / method
+# max-args = 20
+# Maximum number of boolean expressions in a if statement
+# max-bool-expr = 10
+# Maximum number of branch for function / method body
+# max-branches = 100
+# Maximum number of locals for function / method body
+# max-locals = 20
+# Maximum number of nested blocks for function / method body
+# max-nested-blocks = 5
+# Maximum number of positional arguments allowed for a function or method definition
+# max-positional-args = 10
+# Maximum number of public methods for a class (see R0904).
+# max-public-methods = 30
+# Maximum number of return statements allowed for a function or method body
+# max-returns = 10
+# Maximum number of statements in function / method body
+# max-statements = 1000
+# Used when a module has too many lines, reducing its readability.
+# max-module-lines = 1000
