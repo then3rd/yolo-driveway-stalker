@@ -40,9 +40,9 @@ def parse_arguments():
     parser.add_argument(
         "--garage-area", type=str, default=None, help="Garage area coordinates as x1,y1,x2,y2"
     )
-    parser.add_argument(
-        "--driveway-area", type=str, default=None, help="Driveway area coordinates as x1,y1,x2,y2"
-    )
+    # parser.add_argument(
+    #     "--driveway-area", type=str, default=None, help="Driveway area coordinates as x1,y1,x2,y2"
+    # )
     parser.add_argument(
         "--confidence", type=float, default=0.4, help="Confidence threshold for detections"
     )
@@ -73,20 +73,32 @@ def parse_area(area_str):
     return [int(x) for x in area_str.split(",")]
 
 
-def is_in_area(box, area):
+def is_in_area(box, area, *, check_all_points=True):
     """Check if a bounding box is in a defined area."""
     if area is None:
         return False
 
+    # Extract box coordinates
+    x1, y1, x2, y2 = box
+
+    if check_all_points:
+        # Check if all four corners of the box are in the area
+        top_left = area[0] <= x1 <= area[2] and area[1] <= y1 <= area[3]
+        top_right = area[0] <= x2 <= area[2] and area[1] <= y1 <= area[3]
+        bottom_left = area[0] <= x1 <= area[2] and area[1] <= y2 <= area[3]
+        bottom_right = area[0] <= x2 <= area[2] and area[1] <= y2 <= area[3]
+
+        return top_left and top_right and bottom_left and bottom_right
+
     # Calculate center point of the box
-    box_center_x = (box[0] + box[2]) / 2
-    box_center_y = (box[1] + box[3]) / 2
+    box_center_x = (x1 + x2) / 2
+    box_center_y = (y1 + y2) / 2
 
     # Check if center is in area
     return area[0] <= box_center_x <= area[2] and area[1] <= box_center_y <= area[3]
 
 
-def process_image(image_path: Path, model, garage_area, driveway_area, conf=0.4):
+def process_image(image_path: Path, model, garage_area, conf=0.4):
     """Process an image with model."""
     # Read the image
     image = cv2.imread(str(image_path))
@@ -118,28 +130,28 @@ def process_image(image_path: Path, model, garage_area, driveway_area, conf=0.4)
             3,
         )
 
-    if driveway_area:
-        cv2.rectangle(
-            output_image,
-            (driveway_area[0], driveway_area[1]),
-            (driveway_area[2], driveway_area[3]),
-            BLUE,
-            3,
-        )
-        cv2.putText(
-            output_image,
-            "Driveway",
-            (driveway_area[0], driveway_area[1] - 10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            1,
-            BLUE,
-            3,
-        )
+    # if driveway_area:
+    #     cv2.rectangle(
+    #         output_image,
+    #         (driveway_area[0], driveway_area[1]),
+    #         (driveway_area[2], driveway_area[3]),
+    #         BLUE,
+    #         3,
+    #     )
+    #     cv2.putText(
+    #         output_image,
+    #         "Driveway",
+    #         (driveway_area[0], driveway_area[1] - 10),
+    #         cv2.FONT_HERSHEY_SIMPLEX,
+    #         1,
+    #         BLUE,
+    #         3,
+    #     )
 
     # Track counts
     garage_count = 0
     driveway_count = 0
-    other_count = 0
+    # other_count = 0
 
     # Process each car detection
     for r in results:
@@ -154,21 +166,21 @@ def process_image(image_path: Path, model, garage_area, driveway_area, conf=0.4)
 
                 # Determine location
                 in_garage = is_in_area([x1, y1, x2, y2], garage_area)
-                in_driveway = is_in_area([x1, y1, x2, y2], driveway_area)
+                # in_driveway = is_in_area([x1, y1, x2, y2], driveway_area)
 
                 # Set color and label based on location
                 if in_garage:
                     color = GREEN
                     label = "Car (Garage)"
                     garage_count += 1
-                elif in_driveway:
+                else:
                     color = RED
                     label = "Car (Driveway)"
                     driveway_count += 1
-                else:
-                    color = BLUE
-                    label = "Car (Other)"
-                    other_count += 1
+                # if in_driveway:
+                #     color = BLUE
+                #     label = "Car (Other)"
+                #     other_count += 1
 
                 # Draw bounding box and label
                 cv2.rectangle(output_image, (x1, y1), (x2, y2), color, 3)
@@ -202,7 +214,7 @@ def process_image(image_path: Path, model, garage_area, driveway_area, conf=0.4)
         2,
     )
 
-    return output_image, garage_count, driveway_count, other_count
+    return output_image, garage_count, driveway_count
 
 
 def resize_maintain_aspect_ratio(image, width=None, height=None):
@@ -236,16 +248,15 @@ def main():
 
     # Parse garage and driveway areas
     garage_area = parse_area(args.garage_area)
-    driveway_area = parse_area(args.driveway_area)
+    # driveway_area = parse_area(args.driveway_area)
 
     # Process the image
     logger.info(f"Processing image: {args.image}")
     try:
-        output_image, garage_count, driveway_count, other_count = process_image(
+        output_image, garage_count, driveway_count = process_image(
             args.image,
             model,
             garage_area,
-            driveway_area,
             conf=args.confidence,
         )
 
@@ -256,7 +267,7 @@ def main():
 
         # Display results
         logger.info(
-            f"Cars detected: {garage_count} in garage, {driveway_count} in driveway, {other_count} elsewhere"
+            f"Cars detected: {garage_count} in garage, {driveway_count} in driveway"  # , {other_count} elsewhere"
         )
 
         # Display the image

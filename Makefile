@@ -14,12 +14,13 @@ $(VENV_PYTHON):
 # 	$(VENV_PYTHON) -m pip install poetry
 
 
-local_packages: $(VENV_PYTHON) ## Install required packages, needed for IDE support
+local_packages: $(VENV_PYTHON) ## Install required packages
 	$(VENV_PYTHON) -m pip install --no-cache-dir --verbose -r requirements.txt
 	$(VENV_PYTHON) -m pip install --no-cache-dir --verbose -r requirements_torch.txt
 
-run: ## Run the application stack in docker, bringing it down first if running.
-	$(VENV_PYTHON) run.py --image image.jpg --garage-area 370,550,2130,1250 --driveway-area 800,1000,3000,2000
+run: ## Run the script
+	$(VENV_PYTHON) run.py --image example.jpg --garage-area 370,550,2100,1400
+	$(VENV_PYTHON) run.py --image example.jpg --garage-area 370,550,2100,2000
 
 
 # poetry: $(VENV_PYTHON)  ## Install packages in local venv using poetry
