@@ -3,7 +3,7 @@
 from pathlib import Path
 
 DETECT_IMAGE = Path("example.jpg")
-DETECT_AREA_JSON = Path("polygon_points.json")
+DEFAULT_POINTS_JSON = Path("points.json")
 
 GREEN = (0, 255, 0)
 RED = (0, 0, 255)

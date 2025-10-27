@@ -20,8 +20,12 @@ local_packages: $(VENV_PYTHON) ## Install required packages
 
 OPTS = --show True
 run: ## Run the script
-	$(VENV_PYTHON) -m src.garage_process --image example.jpg --garage-area 370,550,2100,1400 $(OPTS)
-	$(VENV_PYTHON) -m src.garage_process --image example.jpg --garage-area 370,550,2100,2000 $(OPTS)
+	$(VENV_PYTHON) -m src.garage_process --image example.jpg --points points_garage.json $(OPTS)
+	$(VENV_PYTHON) -m src.garage_process --image example.jpg --points points_test.json $(OPTS)
+# 	$(VENV_PYTHON) -m src.garage_process --image example.jpg --garage-area 370,550,2100,1400 $(OPTS)
+# 	$(VENV_PYTHON) -m src.garage_process --image example.jpg --garage-area 370,550,2100,2000 $(OPTS)
+
+	points_garage.json
 
 setup:
 	$(VENV_PYTHON) -m src.polygon_picker

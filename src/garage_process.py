@@ -1,6 +1,7 @@
 """Car in garage vs driveway detector."""
 
 import argparse
+import json
 import logging
 from datetime import datetime
 from pathlib import Path
@@ -8,10 +9,11 @@ from zoneinfo import ZoneInfo
 
 import coloredlogs
 import cv2
+import numpy as np
 import requests
 from ultralytics import YOLO  # pyright: ignore[reportPrivateImportUsage]
 
-from .constants import CAR_CLASS, CYAN, GREEN, RED
+from .constants import CAR_CLASS, DEFAULT_POINTS_JSON, GREEN, RED
 
 logger = logging.getLogger(__name__)
 
@@ -36,24 +38,6 @@ def download_model(model_url, model_path):
         logger.info("Download complete!")
     else:
         logger.info(f"Model already exists at {model_path}")
-
-
-def parse_arguments():
-    """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Detect cars in driveways")
-    parser.add_argument("--image", type=str, required=True, help="path to input image")
-    parser.add_argument(
-        "--garage-area", type=str, default=None, help="Garage area coordinates as x1,y1,x2,y2"
-    )
-    # parser.add_argument(
-    #     "--driveway-area", type=str, default=None, help="Driveway area coordinates as x1,y1,x2,y2"
-    # )
-    parser.add_argument(
-        "--confidence", type=float, default=0.4, help="Confidence threshold for detections"
-    )
-    parser.add_argument("--output", type=str, default="output.jpg", help="path for output image")
-    parser.add_argument("--show", type=bool, help="Display output image")
-    return parser.parse_args()
 
 
 def load_model():
@@ -81,40 +65,102 @@ def parse_area(area_str):
     return [int(x) for x in area_str.split(",")]
 
 
-def is_in_area(points, area, *, check_all_points=True):
+def point_in_polygon(point, polygon):
+    """Check if a point is inside a polygon using ray-casting algorithm."""
+    x, y = point
+    n = len(polygon)
+    inside = False
+    p1x, p1y = polygon[0]
+
+    for i in range(1, n + 1):
+        p2x, p2y = polygon[i % n]
+        if y > min(p1y, p2y) and y <= max(p1y, p2y) and x <= max(p1x, p2x):
+            xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x if p1y != p2y else p1x
+            if p1x == p2x or x <= xinters:
+                inside = not inside
+        p1x, p1y = p2x, p2y
+
+    return inside
+
+
+def is_in_area(points, area, *, check_all_points=True):  # noqa: C901, PLR0911
     """Check if a polygon or bounding box is in a defined area."""
     if area is None:
         return False
 
-    box = 4
-    # Check if input is a polygon (array of points) or a bounding box
-    if isinstance(points, list) and len(points) == box:
-        # It's a bounding box [x1, y1, x2, y2]
-        x1, y1, x2, y2 = points
+    # If area is a polygon (list of points), use point-in-polygon algorithm
+    if isinstance(area, list) and len(area) > 4 and all(isinstance(p, list) for p in area):
+        # Area is a polygon
+        # For each point in the input, check if it's inside the polygon
+        box = 4
+        if (
+            isinstance(points, list)
+            and len(points) == box
+            and not all(isinstance(p, list) for p in points)
+        ):
+            # points is a bounding box [x1, y1, x2, y2]
+            x1, y1, x2, y2 = points
+            corners = [
+                [x1, y1],  # top left
+                [x2, y1],  # top right
+                [x1, y2],  # bottom left
+                [x2, y2],  # bottom right
+            ]
 
+            if check_all_points:
+                # Check if all corners are inside the polygon
+                return all(point_in_polygon(corner, area) for corner in corners)
+            # Check if center is in the polygon
+            center_x = (x1 + x2) / 2
+            center_y = (y1 + y2) / 2
+            return point_in_polygon([center_x, center_y], area)
+        # points is a list of points (polygon)
+        # Check if any/all points are in the area polygon
         if check_all_points:
-            # Check if all four corners of the box are in the area
-            top_left = area[0] <= x1 <= area[2] and area[1] <= y1 <= area[3]
-            top_right = area[0] <= x2 <= area[2] and area[1] <= y1 <= area[3]
-            bottom_left = area[0] <= x1 <= area[2] and area[1] <= y2 <= area[3]
-            bottom_right = area[0] <= x2 <= area[2] and area[1] <= y2 <= area[3]
-            return top_left and top_right and bottom_left and bottom_right
-        # Calculate center point of the box
-        box_center_x = (x1 + x2) / 2
-        box_center_y = (y1 + y2) / 2
+            return all(point_in_polygon(point, area) for point in points)
+        # Check if at least one point is inside
+        return any(point_in_polygon(point, area) for point in points)
 
-        # Check if center is in area
-        return area[0] <= box_center_x <= area[2] and area[1] <= box_center_y <= area[3]
-    # It's a polygon (array of points)
-    # Check if all points are inside the area
-    for point in points:
-        x, y = point
-        if not (area[0] <= x <= area[2] and area[1] <= y <= area[3]):
-            return False
-    return True
+    # If area is a rectangle [x1, y1, x2, y2]
+    if isinstance(area, list) and len(area) == 4 and all(isinstance(x, (int, float)) for x in area):
+        box = 4
+        # Check if input is a polygon (array of points) or a bounding box
+        if (
+            isinstance(points, list)
+            and len(points) == box
+            and not all(isinstance(p, list) for p in points)
+        ):
+            # It's a bounding box [x1, y1, x2, y2]
+            x1, y1, x2, y2 = points
+
+            if check_all_points:
+                # Check if all four corners of the box are in the area
+                top_left = area[0] <= x1 <= area[2] and area[1] <= y1 <= area[3]
+                top_right = area[0] <= x2 <= area[2] and area[1] <= y1 <= area[3]
+                bottom_left = area[0] <= x1 <= area[2] and area[1] <= y2 <= area[3]
+                bottom_right = area[0] <= x2 <= area[2] and area[1] <= y2 <= area[3]
+                return top_left and top_right and bottom_left and bottom_right
+            # Calculate center point of the box
+            box_center_x = (x1 + x2) / 2
+            box_center_y = (y1 + y2) / 2
+
+            # Check if center is in area
+            return area[0] <= box_center_x <= area[2] and area[1] <= box_center_y <= area[3]
+        # It's a polygon (array of points)
+        # Check if all points are inside the rectangular area
+        for point in points:
+            x, y = point
+            if not (area[0] <= x <= area[2] and area[1] <= y <= area[3]):
+                return False
+        return True
+
+    logger.warning(
+        f"Unrecognized area format: {type(area)} {len(area) if isinstance(area, list) else ''}"
+    )
+    return False
 
 
-def process_image(image_path: Path, model, garage_area, conf=0.4):
+def process_image(image_path: Path, model, area, conf=0.4):
     """Process an image with model."""
     # Read the image
     image = cv2.imread(str(image_path))
@@ -131,23 +177,41 @@ def process_image(image_path: Path, model, garage_area, conf=0.4):
     add_timestamp_to_image(output_image)
 
     # Draw garage area
-    if garage_area:
-        cv2.rectangle(
-            output_image,
-            (garage_area[0], garage_area[1]),
-            (garage_area[2], garage_area[3]),
-            GREEN,
-            3,
-        )
-        cv2.putText(
-            output_image,
-            "Garage",
-            (garage_area[0], garage_area[1] - 10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            1,
-            GREEN,
-            3,
-        )
+
+    if area:
+        if isinstance(area, list) and len(area) > 4 and all(isinstance(p, list) for p in area):
+            # It's a polygon - draw it
+            pts = np.array(area, np.int32)
+            pts = pts.reshape((-1, 1, 2))
+            cv2.polylines(img=output_image, pts=[pts], isClosed=True, color=GREEN, thickness=3)
+            # Add label at the first point
+            cv2.putText(
+                output_image,
+                "Garage",
+                (int(area[0][0]), int(area[0][1]) - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1,
+                GREEN,
+                3,
+            )
+        else:
+            # It's a rectangle
+            cv2.rectangle(
+                output_image,
+                (area[0], area[1]),
+                (area[2], area[3]),
+                GREEN,
+                3,
+            )
+            cv2.putText(
+                output_image,
+                "Garage",
+                (area[0], area[1] - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                1,
+                GREEN,
+                3,
+            )
 
     # Track counts
     garage_count = 0
@@ -169,7 +233,7 @@ def process_image(image_path: Path, model, garage_area, conf=0.4):
             cls = int(box.cls.item())
             if cls == CAR_CLASS:
                 # Get bounding box coordinates (for label placement)
-                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+                x1, y1, _x2, _y2 = map(int, box.xyxy[0].tolist())
                 conf_score = box.conf.item()
 
                 # Get the corresponding mask polygon points
@@ -180,7 +244,7 @@ def process_image(image_path: Path, model, garage_area, conf=0.4):
                     mask_points_int = mask_points.astype(int)
 
                     # Determine location based on mask points
-                    in_garage = is_in_area(mask_points, garage_area)
+                    in_garage = is_in_area(mask_points, area)
 
                     # Set color and label based on location
                     if in_garage:
@@ -203,7 +267,7 @@ def process_image(image_path: Path, model, garage_area, conf=0.4):
                     # cv2.fillPoly(output_image, [mask_points_int], (*color, 50))
 
                     # Draw bounding box and label
-                    cv2.rectangle(output_image, (x1, y1), (x2, y2), CYAN, 2)
+                    # cv2.rectangle(output_image, (x1, y1), (_x2, _y2), CYAN, 2)
                     cv2.putText(
                         output_image,
                         f"{label} {conf_score:.2f}",
@@ -285,6 +349,39 @@ def add_timestamp_to_image(image):
     cv2.putText(image, timestamp, position, font, font_scale, color, thickness)
 
 
+def load_polygon_from_file(file_path: Path):
+    """Load polygon points from a JSON file."""
+    with Path.open(file_path) as f:
+        data = json.load(f)
+
+    if isinstance(data, list):
+        logger.info(f"Loaded {len(data)} polygon points from {file_path}")
+        return data
+    logger.warning(f"No valid 'points' field found in {file_path}")
+    return None
+
+
+def parse_arguments():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Detect cars in driveways")
+    parser.add_argument("--image", type=str, required=True, help="path to input image")
+    parser.add_argument(
+        "--garage-area", type=str, default=None, help="Garage area coordinates as x1,y1,x2,y2"
+    )
+    parser.add_argument(
+        "--points", type=str, default=None, help="Path to JSON file containing polygon points"
+    )
+    # parser.add_argument(
+    #     "--driveway-area", type=str, default=None, help="Driveway area coordinates as x1,y1,x2,y2"
+    # )
+    parser.add_argument(
+        "--confidence", type=float, default=0.4, help="Confidence threshold for detections"
+    )
+    parser.add_argument("--output", type=str, default="output.jpg", help="path for output image")
+    parser.add_argument("--show", type=bool, help="Display output image")
+    return parser.parse_args()
+
+
 def main():
     """Primary routine"""
     # Parse command line arguments
@@ -296,9 +393,16 @@ def main():
     logger.info("Loading model...")
     model = load_model()
 
-    # Parse garage and driveway areas
-    garage_area = parse_area(args.garage_area)
-    # driveway_area = parse_area(args.driveway_area)
+    # Parse garage area - either from polygon file or from area coordinates
+    area = None
+    json_path = DEFAULT_POINTS_JSON
+
+    if args.garage_area:
+        area = parse_area(args.garage_area)
+    else:
+        if args.points:
+            json_path = Path(args.points)
+        area = load_polygon_from_file(json_path)
 
     # Process the image
     logger.info(f"Processing image: {args.image}")
@@ -306,7 +410,7 @@ def main():
         output_image, garage_count, driveway_count = process_image(
             args.image,
             model,
-            garage_area,
+            area,
             conf=args.confidence,
         )
 

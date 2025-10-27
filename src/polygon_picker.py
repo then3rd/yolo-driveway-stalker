@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.patches import Polygon
 
-from .constants import DETECT_AREA_JSON, DETECT_IMAGE, TRIANGLE_SIDES
+from .constants import DEFAULT_POINTS_JSON, DETECT_IMAGE, TRIANGLE_SIDES
 
 logger = logging.getLogger(__name__)
 
@@ -84,17 +84,10 @@ class PolygonPicker:  # noqa: D101
 
     def save_points(self, output_file: Path):
         """Save the selected points to a file."""
-        # Convert points to list for JSON serialization
-        points_list = self.points
-        # Prepare data with metadata
-        data = {
-            "image": Path(self.image_path),
-            "points": points_list,
-        }
         # Save to JSON file
         with Path.open(output_file, "w") as f:
-            json.dump(data, f, indent=2)
-        logger.info(f"Saved {len(points_list)} points to {output_file}")
+            json.dump(self.points, f, indent=2)
+        logger.info(f"Saved {len(self.points)} points to {output_file}")
 
 
 if __name__ == "__main__":
@@ -105,4 +98,4 @@ if __name__ == "__main__":
     logger.info(points)
 
     # Save points to file
-    picker.save_points(DETECT_AREA_JSON)
+    picker.save_points(DEFAULT_POINTS_JSON)
