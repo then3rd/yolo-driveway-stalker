@@ -11,12 +11,7 @@ import cv2
 import requests
 from ultralytics import YOLO  # pyright: ignore[reportPrivateImportUsage]
 
-GREEN = (0, 255, 0)
-RED = (0, 0, 255)
-BLUE = (255, 0, 0)
-CYAN = (255, 255, 0)
-
-CAR = 2  # 2 is car class in COCO dataset
+from .constants import CAR_CLASS, CYAN, GREEN, RED
 
 logger = logging.getLogger(__name__)
 
@@ -172,7 +167,7 @@ def process_image(image_path: Path, model, garage_area, conf=0.4):
         for i, box in enumerate(boxes):
             # Check if the detection is a car (class 2 in COCO)
             cls = int(box.cls.item())
-            if cls == CAR:
+            if cls == CAR_CLASS:
                 # Get bounding box coordinates (for label placement)
                 x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                 conf_score = box.conf.item()

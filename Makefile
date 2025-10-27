@@ -20,8 +20,11 @@ local_packages: $(VENV_PYTHON) ## Install required packages
 
 OPTS = --show True
 run: ## Run the script
-	$(VENV_PYTHON) run.py --image example.jpg --garage-area 370,550,2100,1400 $(OPTS)
-	$(VENV_PYTHON) run.py --image example.jpg --garage-area 370,550,2100,2000 $(OPTS)
+	$(VENV_PYTHON) -m src.garage_process --image example.jpg --garage-area 370,550,2100,1400 $(OPTS)
+	$(VENV_PYTHON) -m src.garage_process --image example.jpg --garage-area 370,550,2100,2000 $(OPTS)
+
+setup:
+	$(VENV_PYTHON) -m src.polygon_picker
 
 
 # poetry: $(VENV_PYTHON)  ## Install packages in local venv using poetry
