@@ -2,6 +2,10 @@
 
 from pathlib import Path
 
+MODEL_URL = "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt"
+# MODEL_URL = "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n-seg.pt"
+MODEL_CACHE_DIR = Path.home() / ".cache" / "ultralytics"
+
 DETECT_IMAGE = Path("example.jpg")
 DEFAULT_POINTS_JSON = Path("points.json")
 

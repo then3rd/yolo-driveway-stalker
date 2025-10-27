@@ -5,6 +5,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 from zoneinfo import ZoneInfo
 
 import coloredlogs
@@ -13,7 +14,7 @@ import numpy as np
 import requests
 from ultralytics import YOLO  # pyright: ignore[reportPrivateImportUsage]
 
-from .constants import CAR_CLASS, DEFAULT_POINTS_JSON, GREEN, RED
+from .constants import CAR_CLASS, DEFAULT_POINTS_JSON, GREEN, MODEL_CACHE_DIR, MODEL_URL, RED
 
 logger = logging.getLogger(__name__)
 
@@ -41,14 +42,12 @@ def download_model(model_url, model_path):
 
 
 def load_model():
-    """Load  model."""
-    # Define model path and URL
-    # model_url = "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt"
-    model_url = "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n-seg.pt"
-    model_path = Path.home() / ".cache" / "ultralytics" / "yolo11n-seg.pt"
-    # model_path = Path.home() / ".cache" / "ultralytics" / "yolo11n.pt"
+    """Load model."""
     # Download model if not present
-    download_model(model_url, model_path)
+    url_parsed = urlparse(MODEL_URL)
+    file_name = Path(url_parsed.path).name
+    model_path = MODEL_CACHE_DIR / file_name
+    download_model(MODEL_URL, model_path)
     # Load model
     model = YOLO(str(model_path))
     model.to("cpu")  # Explicitly set device to CPU
@@ -82,7 +81,6 @@ def is_in_area(points, area, *, check_all_points=True):  # noqa: C901, PLR0911
     """Check if a polygon or bounding box is in a defined area."""
     if area is None:
         return False
-
     # If area is a polygon (list of points), use point-in-polygon algorithm
     if isinstance(area, list) and len(area) > 4 and all(isinstance(p, list) for p in area):
         # Area is a polygon
@@ -244,7 +242,8 @@ def process_image(image_path: Path, model, area, conf=0.4):
                     )
                     # cv2.fillPoly(output_image, [mask_points_int], (*color, 50))
                     # Draw bounding box and label
-                    # cv2.rectangle(output_image, (x1, y1), (_x2, _y2), CYAN, 2)
+                    # if masks is None:
+                    #     cv2.rectangle(output_image, (x1, y1), (_x2, _y2), color, 2)
                     cv2.putText(
                         output_image,
                         f"{label} {conf_score:.2f}",
