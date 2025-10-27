@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-MODEL_URL = "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt"
-# MODEL_URL = "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n-seg.pt"
+# MODEL_URL = "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n.pt"
+MODEL_URL = "https://github.com/ultralytics/assets/releases/download/v8.3.0/yolo11n-seg.pt"
 MODEL_CACHE_DIR = Path.home() / ".cache" / "ultralytics"
 
 DETECT_IMAGE = Path("example.jpg")
@@ -14,6 +14,11 @@ RED = (0, 0, 255)
 BLUE = (255, 0, 0)
 CYAN = (255, 255, 0)
 
-CAR_CLASS = 2  # 2 is car class in COCO dataset
+DETECTION_CLASSES = [  # COCO dataset classes
+    # 0,  # person
+    # 1,  # bicycle
+    2,  # car
+    # 3,  # motorcycle
+]
 
 TRIANGLE_SIDES = 3

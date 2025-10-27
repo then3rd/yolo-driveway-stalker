@@ -1,4 +1,4 @@
-"""Car in garage vs driveway detector."""
+"""Object in zone detector."""
 
 import argparse
 import json
@@ -14,9 +14,21 @@ import numpy as np
 import requests
 from ultralytics import YOLO  # pyright: ignore[reportPrivateImportUsage]
 
-from .constants import CAR_CLASS, DEFAULT_POINTS_JSON, GREEN, MODEL_CACHE_DIR, MODEL_URL, RED
+from .constants import (
+    CYAN,
+    DEFAULT_POINTS_JSON,
+    DETECTION_CLASSES,
+    GREEN,
+    MODEL_CACHE_DIR,
+    MODEL_URL,
+    RED,
+)
 
 logger = logging.getLogger(__name__)
+
+COLOR_ZONE = CYAN
+COLOR_PASS = GREEN
+COLOR_FAIL = RED
 
 
 def setup_logger(log_level):
@@ -161,21 +173,21 @@ def process_image(image_path: Path, model, area, conf=0.4):
     output_image = image.copy()
     # Add current timestamp
     add_timestamp_to_image(output_image)
-    # Draw garage area
+    # Draw zone area
     if area:
         if isinstance(area, list) and len(area) > 4 and all(isinstance(p, list) for p in area):
             # It's a polygon - draw it
             pts = np.array(area, np.int32)
             pts = pts.reshape((-1, 1, 2))
-            cv2.polylines(img=output_image, pts=[pts], isClosed=True, color=GREEN, thickness=3)
+            cv2.polylines(img=output_image, pts=[pts], isClosed=True, color=COLOR_ZONE, thickness=3)
             # Add label at the first point
             cv2.putText(
                 output_image,
-                "Garage",
+                "Zone",
                 (int(area[0][0]), int(area[0][1]) - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 1,
-                GREEN,
+                COLOR_ZONE,
                 3,
             )
         else:
@@ -184,100 +196,110 @@ def process_image(image_path: Path, model, area, conf=0.4):
                 output_image,
                 (area[0], area[1]),
                 (area[2], area[3]),
-                GREEN,
+                COLOR_PASS,
                 3,
             )
             cv2.putText(
                 output_image,
-                "Garage",
+                "Zone",
                 (area[0], area[1] - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 1,
-                GREEN,
+                COLOR_PASS,
                 3,
             )
 
     # Track counts
-    garage_count = 0
-    driveway_count = 0
+    zone_count = 0
+    outside_count = 0
 
     # Process each detection result
     for r in results:
         boxes = r.boxes
         masks = r.masks
-        if masks is None:
-            logger.warning("No segmentation masks found in results. Using bounding boxes only.")
-            continue
+
         # Process each detection
         for i, box in enumerate(boxes):
-            # Check if the detection is a car (class 2 in COCO)
+            # Check if the detection is a desired COCO class
             cls = int(box.cls.item())
-            if cls == CAR_CLASS:
-                # Get bounding box coordinates (for label placement)
-                x1, y1, _x2, _y2 = map(int, box.xyxy[0].tolist())
+            if cls in DETECTION_CLASSES:
+                # Get bounding box coordinates
+                x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                 conf_score = box.conf.item()
-                # Get the corresponding mask polygon points
-                try:
-                    mask_points = masks.xy[i]
-                    # Convert mask points to integer for drawing
-                    mask_points_int = mask_points.astype(int)
-                    # Determine location based on mask points
-                    in_garage = is_in_area(mask_points, area)
-                    # Set color and label based on location
-                    if in_garage:
-                        color = GREEN
-                        label = "Car (Garage)"
-                        garage_count += 1
-                    else:
-                        color = RED
-                        label = "Car (Driveway)"
-                        driveway_count += 1
-                    # Draw the polygon mask
-                    cv2.polylines(
-                        img=output_image,
-                        pts=[mask_points_int],
-                        isClosed=True,
-                        color=color,
-                        thickness=3,
+                # Handle segmentation masks if available
+                if masks is not None:
+                    try:
+                        # Get the corresponding mask polygon points
+                        mask_points = masks.xy[i]
+                        # Convert mask points to integer for drawing
+                        mask_points_int = mask_points.astype(int)
+                        # Determine location based on mask points
+                        in_zone = is_in_area(mask_points, area)
+                        # Draw the polygon mask
+                        cv2.polylines(
+                            img=output_image,
+                            pts=[mask_points_int],
+                            isClosed=True,
+                            color=COLOR_PASS if in_zone else COLOR_FAIL,
+                            thickness=3,
+                        )
+                        # Optional: Fill the polygon with semi-transparent color
+                        # cv2.fillPoly(output_image, [mask_points_int], (*color, 50))
+                    except (IndexError, AttributeError) as e:
+                        logger.warning(f"Error processing mask for detection {i}: {e}")
+                        # Fall back to bounding box if mask fails
+                        in_zone = is_in_area([x1, y1, x2, y2], area)
+                else:
+                    # No masks available, use bounding box for location determination
+                    logger.debug("Using bounding box for detection")
+                    in_zone = is_in_area([x1, y1, x2, y2], area)
+                    # Draw the bounding box
+                    cv2.rectangle(
+                        output_image, (x1, y1), (x2, y2), COLOR_PASS if in_zone else COLOR_FAIL, 2
                     )
-                    # cv2.fillPoly(output_image, [mask_points_int], (*color, 50))
-                    # Draw bounding box and label
-                    # if masks is None:
-                    #     cv2.rectangle(output_image, (x1, y1), (_x2, _y2), color, 2)
-                    cv2.putText(
-                        output_image,
-                        f"{label} {conf_score:.2f}",
-                        (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        1,
-                        color,
-                        2,
-                    )
-                except (IndexError, AttributeError) as e:
-                    logger.warning(f"Error processing mask for detection {i}: {e}")
-                    continue
+
+                # Set color and label based on location
+                if in_zone:
+                    color = COLOR_PASS
+                    label = "Object (inside)"
+                    zone_count += 1
+                else:
+                    color = COLOR_FAIL
+                    label = "Object (outside)"
+                    outside_count += 1
+
+                # Draw label
+                cv2.putText(
+                    output_image,
+                    f"{label} {conf_score:.2f}",
+                    (x1, y1 - 10),
+                    cv2.FONT_HERSHEY_SIMPLEX,
+                    1,
+                    color,
+                    2,
+                )
 
     # Display counts
     cv2.putText(
         output_image,
-        f"Cars in Garage: {garage_count}",
+        f"Objects in zone: {zone_count}",
         (10, 30),
         cv2.FONT_HERSHEY_SIMPLEX,
         1,
-        GREEN,
+        COLOR_PASS,
         2,
     )
     cv2.putText(
         output_image,
-        f"Cars in Driveway: {driveway_count}",
+        f"Objects outside zone: {outside_count}",
         (10, 70),
         cv2.FONT_HERSHEY_SIMPLEX,
         1,
-        RED,
+        COLOR_FAIL,
         2,
     )
 
-    return output_image, garage_count, driveway_count
+    return output_image, zone_count, outside_count
 
 
 def resize_maintain_aspect_ratio(image, width=None, height=None):
@@ -330,10 +352,10 @@ def load_polygon_from_file(file_path: Path):
 
 def parse_arguments():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Detect cars in driveways")
+    parser = argparse.ArgumentParser(description="Detect objects in zones")
     parser.add_argument("--image", type=str, required=True, help="path to input image")
     parser.add_argument(
-        "--garage-area", type=str, default=None, help="Garage area coordinates as x1,y1,x2,y2"
+        "--zone-area", type=str, default=None, help="Zone area coordinates as x1,y1,x2,y2"
     )
     parser.add_argument(
         "--points", type=str, default=None, help="Path to JSON file containing polygon points"
@@ -354,11 +376,11 @@ def main():
     # Load model
     logger.info("Loading model...")
     model = load_model()
-    # Parse garage area - either from polygon file or from area coordinates
+    # Parse zone area - either from polygon file or from area coordinates
     area = None
     json_path = DEFAULT_POINTS_JSON
-    if args.garage_area:
-        area = parse_area(args.garage_area)
+    if args.zone_area:
+        area = parse_area(args.zone_area)
     else:
         if args.points:
             json_path = Path(args.points)
@@ -366,7 +388,7 @@ def main():
     # Process the image
     logger.info(f"Processing image: {args.image}")
     try:
-        output_image, garage_count, driveway_count = process_image(
+        output_image, zone_count, outside_count = process_image(
             args.image,
             model,
             area,
@@ -378,7 +400,7 @@ def main():
         logger.info(f"Output saved to: {args.output}")
         # Display results
         logger.info(
-            f"Cars detected: {garage_count} in garage, {driveway_count} in driveway"  # , {other_count} elsewhere"
+            f"Cars detected: {zone_count} in zone, {outside_count} in outside"  # , {other_count} elsewhere"
         )
         if args.show:
             # Display the image
