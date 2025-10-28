@@ -12,6 +12,8 @@ import coloredlogs
 import cv2
 import numpy as np
 import requests
+from pydantic import BaseModel, Field
+from shapely.geometry import Point, Polygon
 from ultralytics import YOLO  # pyright: ignore[reportPrivateImportUsage]
 
 from .constants import (
@@ -31,14 +33,85 @@ COLOR_PASS = GREEN
 COLOR_FAIL = RED
 
 
-def setup_logger(log_level):
+class PointModel(BaseModel):
+    """Model representing a 2D point."""
+
+    x: float
+    y: float
+
+    def as_tuple(self) -> tuple[float, float]:
+        """Convert to tuple for Shapely operations."""
+        return (self.x, self.y)
+
+
+class BoundingBoxModel(BaseModel):
+    """Model representing a bounding box with two points."""
+
+    x1: float
+    y1: float
+    x2: float
+    y2: float
+
+    def as_corners(self) -> list[tuple[float, float]]:
+        """Get the four corners of the bounding box."""
+        return [
+            (self.x1, self.y1),  # top left
+            (self.x2, self.y1),  # top right
+            (self.x2, self.y2),  # bottom right
+            (self.x1, self.y2),  # bottom left
+        ]
+
+    def as_shapely_polygon(self) -> Polygon:
+        """Convert bounding box to Shapely Polygon."""
+        return Polygon(self.as_corners())
+
+    def get_center(self) -> Point:
+        """Get the center point of the bounding box."""
+        return Point((self.x1 + self.x2) / 2, (self.y1 + self.y2) / 2)
+
+
+class PolygonModel(BaseModel):
+    """Model representing a polygon."""
+
+    points: list[PointModel] = Field(min_length=3)
+
+    def as_point_list(self) -> list[tuple[float, float]]:
+        """Convert to list of tuples for Shapely operations."""
+        return [point.as_tuple() for point in self.points]
+
+    def as_shapely_polygon(self) -> Polygon:
+        """Convert to Shapely Polygon."""
+        return Polygon(self.as_point_list())
+
+    def as_numpy_array(self) -> np.ndarray:
+        """Convert to numpy array for OpenCV operations."""
+        return np.array(self.as_point_list(), np.int32).reshape((-1, 1, 2))
+
+
+class DetectionResult(BaseModel):
+    """Model representing a detection result."""
+
+    bbox: BoundingBoxModel
+    confidence: float
+    class_id: int
+    mask_points: list[tuple[float, float]] | None = None
+    in_zone: bool = False
+
+    def as_mask_polygon(self) -> Polygon | None:
+        """Convert mask points to Shapely Polygon if available."""
+        if self.mask_points:
+            return Polygon(self.mask_points)
+        return None
+
+
+def setup_logger(log_level: str):
     """Colored logger setup."""
     logging.basicConfig(level=log_level)
     coloredlogs.DEFAULT_LOG_FORMAT = "%(asctime)s %(name)s[%(process)d] %(levelname)s %(message)s"
     coloredlogs.install(level=log_level, isatty=True)
 
 
-def download_model(model_url, model_path):
+def download_model(model_url: str, model_path: Path):
     """Download the YOLO model if it doesn't exist."""
     model_path = Path(model_path)
     if not model_path.exists():
@@ -53,7 +126,7 @@ def download_model(model_url, model_path):
         logger.info(f"Model already exists at {model_path}")
 
 
-def load_model():
+def load_model() -> YOLO:
     """Load model."""
     # Download model if not present
     url_parsed = urlparse(MODEL_URL)
@@ -66,102 +139,75 @@ def load_model():
     return model
 
 
-def parse_area(area_str):
-    """Parse area string into coordinates."""
+def parse_area(area_str: str) -> BoundingBoxModel | None:
+    """Parse area string into a BoundingBoxModel."""
     if not area_str:
         return None
-    return [int(x) for x in area_str.split(",")]
+
+    coords = [int(x) for x in area_str.split(",")]
+    if len(coords) != 4:
+        raise ValueError("Area must be specified as x1,y1,x2,y2")
+    return BoundingBoxModel(x1=coords[0], y1=coords[1], x2=coords[2], y2=coords[3])
 
 
-def point_in_polygon(point, polygon):
-    """Check if a point is inside a polygon using ray-casting algorithm."""
-    x, y = point
-    n = len(polygon)
-    inside = False
-    p1x, p1y = polygon[0]
-    for i in range(1, n + 1):
-        p2x, p2y = polygon[i % n]
-        if y > min(p1y, p2y) and y <= max(p1y, p2y) and x <= max(p1x, p2x):
-            xinters = (y - p1y) * (p2x - p1x) / (p2y - p1y) + p1x if p1y != p2y else p1x
-            if p1x == p2x or x <= xinters:
-                inside = not inside
-        p1x, p1y = p2x, p2y
-    return inside
-
-
-def is_in_area(points, area, *, check_all_points=True):  # noqa: C901, PLR0911
-    """Check if a polygon or bounding box is in a defined area."""
+def is_in_area(  # noqa: C901, PLR0911
+    geometry: list[tuple[float, float]] | BoundingBoxModel | Polygon,
+    area: PolygonModel | BoundingBoxModel | Polygon,
+    *,
+    check_all_points: bool = True,
+) -> bool:
+    """Check if a geometry is in a defined area using Shapely."""
     if area is None:
         return False
-    # If area is a polygon (list of points), use point-in-polygon algorithm
-    if isinstance(area, list) and len(area) > 4 and all(isinstance(p, list) for p in area):
-        # Area is a polygon
-        # For each point in the input, check if it's inside the polygon
-        box = 4
-        if (
-            isinstance(points, list)
-            and len(points) == box
-            and not all(isinstance(p, list) for p in points)
-        ):
-            # points is a bounding box [x1, y1, x2, y2]
-            x1, y1, x2, y2 = points
-            corners = [
-                [x1, y1],  # top left
-                [x2, y1],  # top right
-                [x1, y2],  # bottom left
-                [x2, y2],  # bottom right
-            ]
-            if check_all_points:
-                # Check if all corners are inside the polygon
-                return all(point_in_polygon(corner, area) for corner in corners)
-            # Check if center is in the polygon
-            center_x = (x1 + x2) / 2
-            center_y = (y1 + y2) / 2
-            return point_in_polygon([center_x, center_y], area)
-        # points is a list of points (polygon)
-        # Check if any/all points are in the area polygon
-        if check_all_points:
-            return all(point_in_polygon(point, area) for point in points)
-        # Check if at least one point is inside
-        return any(point_in_polygon(point, area) for point in points)
-    # If area is a rectangle [x1, y1, x2, y2]
-    if isinstance(area, list) and len(area) == 4 and all(isinstance(x, (int, float)) for x in area):
-        box = 4
-        # Check if input is a polygon (array of points) or a bounding box
-        if (
-            isinstance(points, list)
-            and len(points) == box
-            and not all(isinstance(p, list) for p in points)
-        ):
-            # It's a bounding box [x1, y1, x2, y2]
-            x1, y1, x2, y2 = points
-            if check_all_points:
-                # Check if all four corners of the box are in the area
-                top_left = area[0] <= x1 <= area[2] and area[1] <= y1 <= area[3]
-                top_right = area[0] <= x2 <= area[2] and area[1] <= y1 <= area[3]
-                bottom_left = area[0] <= x1 <= area[2] and area[1] <= y2 <= area[3]
-                bottom_right = area[0] <= x2 <= area[2] and area[1] <= y2 <= area[3]
-                return top_left and top_right and bottom_left and bottom_right
-            # Calculate center point of the box
-            box_center_x = (x1 + x2) / 2
-            box_center_y = (y1 + y2) / 2
-            # Check if center is in area
-            return area[0] <= box_center_x <= area[2] and area[1] <= box_center_y <= area[3]
-        # It's a polygon (array of points)
-        # Check if all points are inside the rectangular area
-        for point in points:
-            x, y = point
-            if not (area[0] <= x <= area[2] and area[1] <= y <= area[3]):
-                return False
-        return True
 
-    logger.warning(
-        f"Unrecognized area format: {type(area)} {len(area) if isinstance(area, list) else ''}"
-    )
+    # Convert area to Shapely Polygon if needed
+    area_polygon = area
+    if isinstance(area, PolygonModel) or isinstance(area, BoundingBoxModel):
+        area_polygon = area.as_shapely_polygon()
+    elif not isinstance(area_polygon, Polygon):
+        # Convert list of points to Polygon
+        try:
+            area_polygon = Polygon(area)
+        except Exception as e:
+            logger.warning(f"Failed to create polygon from area: {e}")
+            return False
+
+    # Convert input geometry to Shapely object if needed
+    if isinstance(geometry, BoundingBoxModel):
+        if check_all_points:
+            # Check if all corners are inside the area
+            return all(area_polygon.contains(Point(p)) for p in geometry.as_corners())
+        # Check if center is in the area
+        return area_polygon.contains(geometry.get_center())
+    if isinstance(geometry, list):
+        # If geometry is a list of points
+        if len(geometry) == 4 and not all(isinstance(p, list) for p in geometry):
+            # It's a bounding box [x1, y1, x2, y2]
+
+            x1, y1, x2, y2 = geometry
+            bbox = BoundingBoxModel(x1=x1, y1=y1, x2=x2, y2=y2)
+            return is_in_area(bbox, area_polygon, check_all_points=check_all_points)
+
+        # It's a list of points
+        if check_all_points:
+            # Check if all points are inside the area
+            return all(area_polygon.contains(Point(p)) for p in geometry)
+        # Check if any point is inside the area
+        return any(area_polygon.contains(Point(p)) for p in geometry)
+    if isinstance(geometry, Polygon):
+        if check_all_points:
+            # Check if the entire polygon is inside the area
+            return area_polygon.contains(geometry)
+        # Check if the polygons intersect
+        return area_polygon.intersects(geometry)
+
+    logger.warning(f"Unrecognized geometry format: {type(geometry)}")
     return False
 
 
-def process_image(image_path: Path, model, area, conf=0.4):
+def process_image(  # noqa: C901
+    image_path: Path, model: YOLO, area: PolygonModel | BoundingBoxModel, conf: float = 0.4
+) -> tuple[np.ndarray, int, int]:
     """Process an image with model."""
     # Read the image
     image = cv2.imread(str(image_path))
@@ -175,34 +221,41 @@ def process_image(image_path: Path, model, area, conf=0.4):
     add_timestamp_to_image(output_image)
     # Draw zone area
     if area:
-        if isinstance(area, list) and len(area) > 4 and all(isinstance(p, list) for p in area):
+        if isinstance(area, PolygonModel):
             # It's a polygon - draw it
-            pts = np.array(area, np.int32)
-            pts = pts.reshape((-1, 1, 2))
-            cv2.polylines(img=output_image, pts=[pts], isClosed=True, color=COLOR_ZONE, thickness=3)
+
+            cv2.polylines(
+                img=output_image,
+                pts=[area.as_numpy_array()],
+                isClosed=True,
+                color=COLOR_ZONE,
+                thickness=3,
+            )
             # Add label at the first point
+            first_point = area.points[0]
             cv2.putText(
                 output_image,
                 "Zone",
-                (int(area[0][0]), int(area[0][1]) - 10),
+                (int(first_point.x), int(first_point.y) - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 1,
                 COLOR_ZONE,
                 3,
             )
-        else:
+
+        elif isinstance(area, BoundingBoxModel):
             # It's a rectangle
             cv2.rectangle(
                 output_image,
-                (area[0], area[1]),
-                (area[2], area[3]),
+                (int(area.x1), int(area.y1)),
+                (int(area.x2), int(area.y2)),
                 COLOR_PASS,
                 3,
             )
             cv2.putText(
                 output_image,
                 "Zone",
-                (area[0], area[1] - 10),
+                (int(area.x1), int(area.y1) - 10),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 1,
                 COLOR_PASS,
@@ -226,15 +279,21 @@ def process_image(image_path: Path, model, area, conf=0.4):
                 # Get bounding box coordinates
                 x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
                 conf_score = box.conf.item()
+                bbox = BoundingBoxModel(x1=x1, y1=y1, x2=x2, y2=y2)
+
                 # Handle segmentation masks if available
+                in_zone = False
                 if masks is not None:
                     try:
                         # Get the corresponding mask polygon points
                         mask_points = masks.xy[i]
+                        # Convert mask points to list of tuples
+                        mask_points_list = [(float(p[0]), float(p[1])) for p in mask_points]
+                        # Determine location based on mask points
+                        in_zone = is_in_area(mask_points_list, area)
                         # Convert mask points to integer for drawing
                         mask_points_int = mask_points.astype(int)
-                        # Determine location based on mask points
-                        in_zone = is_in_area(mask_points, area)
+
                         # Draw the polygon mask
                         cv2.polylines(
                             img=output_image,
@@ -243,16 +302,17 @@ def process_image(image_path: Path, model, area, conf=0.4):
                             color=COLOR_PASS if in_zone else COLOR_FAIL,
                             thickness=3,
                         )
-                        # Optional: Fill the polygon with semi-transparent color
-                        # cv2.fillPoly(output_image, [mask_points_int], (*color, 50))
+
                     except (IndexError, AttributeError) as e:
                         logger.warning(f"Error processing mask for detection {i}: {e}")
                         # Fall back to bounding box if mask fails
-                        in_zone = is_in_area([x1, y1, x2, y2], area)
+
+                        in_zone = is_in_area(bbox, area)
                 else:
                     # No masks available, use bounding box for location determination
                     logger.debug("Using bounding box for detection")
-                    in_zone = is_in_area([x1, y1, x2, y2], area)
+
+                    in_zone = is_in_area(bbox, area)
                     # Draw the bounding box
                     cv2.rectangle(
                         output_image, (x1, y1), (x2, y2), COLOR_PASS if in_zone else COLOR_FAIL, 2
@@ -302,7 +362,9 @@ def process_image(image_path: Path, model, area, conf=0.4):
     return output_image, zone_count, outside_count
 
 
-def resize_maintain_aspect_ratio(image, width=None, height=None):
+def resize_maintain_aspect_ratio(
+    image: np.ndarray, width: int | None = None, height: int | None = None
+) -> np.ndarray:
     """Resize image based on width or height and selected interpolation method"""
     dim = None
     (h, w) = image.shape[:2]
@@ -319,7 +381,7 @@ def resize_maintain_aspect_ratio(image, width=None, height=None):
     return cv2.resize(image, dim, interpolation=cv2.INTER_AREA)
 
 
-def add_timestamp_to_image(image):
+def add_timestamp_to_image(image: np.ndarray) -> None:
     """Add the current ISO timestamp to an image"""
     # Get current timestamp in ISO format
     timestamp = datetime.now(ZoneInfo("America/Denver")).strftime("%b %d, %Y - %I:%M:%S %p")
@@ -339,18 +401,22 @@ def add_timestamp_to_image(image):
     cv2.putText(image, timestamp, position, font, font_scale, color, thickness)
 
 
-def load_polygon_from_file(file_path: Path):
+def load_polygon_from_file(file_path: Path) -> PolygonModel | None:
     """Load polygon points from a JSON file."""
     with Path.open(file_path) as f:
         data = json.load(f)
-    if isinstance(data, list):
-        logger.info(f"Loaded {len(data)} polygon points from {file_path}")
-        return data
-    logger.warning(f"No valid 'points' field found in {file_path}")
+
+    if isinstance(data, list) and all(isinstance(p, list) for p in data):
+        # Convert to PointModel list
+        points = [PointModel(x=float(p[0]), y=float(p[1])) for p in data]
+        logger.info(f"Loaded {len(points)} polygon points from {file_path}")
+        return PolygonModel(points=points)
+
+    logger.warning(f"No valid points found in {file_path}")
     return None
 
 
-def parse_arguments():
+def parse_arguments() -> argparse.Namespace:
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Detect objects in zones")
     parser.add_argument("--image", type=str, required=True, help="path to input image")
@@ -364,11 +430,12 @@ def parse_arguments():
         "--confidence", type=float, default=0.4, help="Confidence threshold for detections"
     )
     parser.add_argument("--output", type=str, default="output.jpg", help="path for output image")
-    parser.add_argument("--show", type=bool, help="Display output image")
+
+    parser.add_argument("--show", action="store_true", help="Display output image")
     return parser.parse_args()
 
 
-def main():
+def main() -> None:
     """Primary routine"""
     # Parse command line arguments
     args = parse_arguments()
@@ -376,20 +443,24 @@ def main():
     # Load model
     logger.info("Loading model...")
     model = load_model()
+
     # Parse zone area - either from polygon file or from area coordinates
-    area = None
+
+    area: PolygonModel | BoundingBoxModel | None = None
     json_path = DEFAULT_POINTS_JSON
+
     if args.zone_area:
         area = parse_area(args.zone_area)
     else:
         if args.points:
             json_path = Path(args.points)
         area = load_polygon_from_file(json_path)
+
     # Process the image
     logger.info(f"Processing image: {args.image}")
     try:
         output_image, zone_count, outside_count = process_image(
-            args.image,
+            Path(args.image),
             model,
             area,
             conf=args.confidence,
@@ -399,22 +470,21 @@ def main():
         cv2.imwrite(str(output_path), output_image)
         logger.info(f"Output saved to: {args.output}")
         # Display results
-        logger.info(
-            f"Cars detected: {zone_count} in zone, {outside_count} in outside"  # , {other_count} elsewhere"
-        )
+
+        logger.info(f"Objects detected: {zone_count} in zone, {outside_count} outside")
+
         if args.show:
             # Display the image
-            cv2.imshow(
-                "YOLO Car Detection", resize_maintain_aspect_ratio(output_image, height=1024)
-            )
+            cv2.imshow("YOLO Detection", resize_maintain_aspect_ratio(output_image, height=1024))
             logger.info("Press any key to exit")
             cv2.waitKey(0)
             cv2.destroyAllWindows()
-    except Exception as e:  # noqa: BLE001
-        logger.info(f"Error processing image: {e}")
+
+    except Exception:
+        logger.exception("Error processing image.")
 
 
-def torch_test():
+def torch_test() -> None:
     """Torch Test"""
     import torch
 

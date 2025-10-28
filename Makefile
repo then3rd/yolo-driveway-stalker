@@ -18,14 +18,12 @@ local_packages: $(VENV_PYTHON) ## Install required packages
 	$(VENV_PYTHON) -m pip install --no-cache-dir --verbose -r requirements.txt
 	$(VENV_PYTHON) -m pip install --no-cache-dir --verbose -r requirements_torch.txt
 
-OPTS = --show True
+OPTS = --show
 run: ## Run the script
-	$(VENV_PYTHON) -m src.garage_process --image example.jpg --points points_garage.json $(OPTS)
-	$(VENV_PYTHON) -m src.garage_process --image example.jpg --points points_test.json $(OPTS)
-# 	$(VENV_PYTHON) -m src.garage_process --image example.jpg --garage-area 370,550,2100,1400 $(OPTS)
-# 	$(VENV_PYTHON) -m src.garage_process --image example.jpg --garage-area 370,550,2100,2000 $(OPTS)
-
-	points_garage.json
+	$(VENV_PYTHON) -m src.zone_process --image example.jpg --points points_garage.json $(OPTS)
+	$(VENV_PYTHON) -m src.zone_process --image example.jpg --points points_test.json $(OPTS)
+# 	$(VENV_PYTHON) -m src.zone_process --image example.jpg --garage-area 370,550,2100,1400 $(OPTS)
+# 	$(VENV_PYTHON) -m src.zone_process --image example.jpg --garage-area 370,550,2100,2000 $(OPTS)
 
 setup:
 	$(VENV_PYTHON) -m src.polygon_picker

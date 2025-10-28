@@ -3,6 +3,8 @@ gitpython
 numpy
 opencv-python
 pandas
+pydantic
 seaborn
+shapely
 tqdm
 ultralytics
